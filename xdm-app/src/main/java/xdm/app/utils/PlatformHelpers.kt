@@ -35,14 +35,22 @@ import kotlin.system.exitProcess
 private var trayIconRef: TrayIcon? = null
 
 /**
- * Installs the tray icon, or waits for Linux's tray service to appear. The result is only logged:
- * a hidden start without a tray is still reachable by launching XDM again.
+ * Installs the tray icon on the EDT, watching for a late Linux tray service as well. The result is
+ * only logged: a hidden start without a tray is still reachable by launching XDM again.
  */
 fun createTray(image: Image): Boolean {
     // Linux panels want a StatusNotifierItem; the AWT tray (XEmbed) is only the fallback, and the
     // Wayland toolkit has none at all.
-    if (detectOS() == OS.Linux && DBusTray.install { size -> logoImage(size) }) {
-        return true
+    if (detectOS() == OS.Linux) {
+        val nativeTray = DBusTray.install(onRegistered = {
+            // Queue removal after createTray finishes on the EDT, including a watcher that
+            // appears while we are installing the AWT fallback.
+            SwingUtilities.invokeLater {
+                trayIconRef?.let { SystemTray.getSystemTray().remove(it) }
+                trayIconRef = null
+            }
+        }) { size -> logoImage(size) }
+        if (nativeTray) return true
     }
     if (!SystemTray.isSupported()) {
         Logger.info("SystemTray is not supported")

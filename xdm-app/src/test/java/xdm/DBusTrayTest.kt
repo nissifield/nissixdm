@@ -15,6 +15,7 @@ import xdm.app.utils.linux.dbus.Reply
 import xdm.app.utils.linux.dbus.Variant
 import java.awt.image.BufferedImage
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /** Uses a private bus, never the user's desktop watcher. See docs/fedora-tray.md. */
@@ -61,12 +62,16 @@ class DBusTrayTest {
     fun waitsForLateWatcherAndRegistersAgainAfterPanelRestart() {
         DBusConnection.openSession().use { appBus ->
             assertFalse(appBus.nameHasOwner(watcherName), "This test requires a private bus")
-            assertTrue(DBusTray.install(appBus) { size -> BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB) })
+            val nativeReady = CountDownLatch(1)
+            assertFalse(DBusTray.install(appBus, onRegistered = { nativeReady.countDown() }) {
+                size -> BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
+            })
 
             DBusConnection.openSession().use { panel ->
                 val watcher = Watcher()
                 panel.startWatcher(watcher)
                 val name = watcher.awaitRegistration()
+                assertTrue(nativeReady.await(5, TimeUnit.SECONDS), "The AWT fallback must be notified")
                 assertTrue(appBus.nameHasOwner(name))
                 val status = panel.call(
                     name, "/StatusNotifierItem", "org.freedesktop.DBus.Properties", "Get",
@@ -80,6 +85,7 @@ class DBusTrayTest {
                 val watcher = Watcher()
                 replacement.startWatcher(watcher)
                 assertTrue(appBus.nameHasOwner(watcher.awaitRegistration()))
+                replacement.stopWatcher()
             }
         }
     }
@@ -92,6 +98,7 @@ class DBusTrayTest {
             DBusConnection.openSession().use { appBus ->
                 assertTrue(DBusTray.install(appBus) { size -> BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB) })
                 assertTrue(appBus.nameHasOwner(watcher.awaitRegistration()))
+                panel.stopWatcher()
             }
         }
     }
@@ -102,7 +109,7 @@ class DBusTrayTest {
             DBusConnection.openSession().use { panel ->
                 val watcher = Watcher(fail = true)
                 panel.startWatcher(watcher)
-                assertTrue(DBusTray.install(appBus) { size -> BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB) })
+                assertFalse(DBusTray.install(appBus) { size -> BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB) })
                 watcher.awaitRegistration()
                 panel.stopWatcher()
             }
@@ -110,6 +117,7 @@ class DBusTrayTest {
                 val watcher = Watcher()
                 replacement.startWatcher(watcher)
                 assertTrue(appBus.nameHasOwner(watcher.awaitRegistration()))
+                replacement.stopWatcher()
             }
         }
     }

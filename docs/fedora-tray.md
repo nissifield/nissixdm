@@ -10,8 +10,8 @@ fork does not patch an already installed GTK RPM.
 
 Linux exports a D-Bus StatusNotifierItem even if the desktop tray watcher has not
 started yet. It registers when that watcher appears and re-registers after a panel
-restart or a failed registration followed by watcher replacement. While waiting,
-it avoids creating a second AWT tray icon.
+restart or a failed registration followed by watcher replacement. The AWT tray remains available as a fallback while waiting. Successful native
+registration removes the fallback on the UI thread, avoiding duplicate icons.
 
 GNOME needs a compatible AppIndicator/StatusNotifier extension to display these
 icons. If the desktop supplies no tray host, XDM cannot create a panel icon by

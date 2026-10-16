@@ -143,7 +143,7 @@ class AppInstance : IAppInstance {
             // toolkit): the browser extension still works, and launching XDM again hands over to this
             // instance, which shows the window - the same state as closing the window.
             if (minimized) {
-                Logger.info(if (hasTray) "Starting minimized (tray installed or awaiting desktop)" else "Starting hidden (no system tray)")
+                Logger.info(if (hasTray) "Starting minimized to the system tray" else "Starting hidden (no system tray)")
                 // WorkingSetTrim.request("started in the tray")  // working-set trimming disabled
             } else {
                 showAppWindow()

@@ -37,10 +37,14 @@ internal object DBusTray {
 
     /**
      * Exports the icon and watches for the tray service, which may start after XDM at login.
-     * True means D-Bus owns the tray lifecycle, even while waiting for a watcher; the caller must
-     * not also install an AWT icon. False lets the caller fall back when setup itself fails.
+     * Returns whether registration succeeded now. A late watcher can still register it after a
+     * false result; onRegistered lets the caller remove any AWT fallback when that happens.
      */
-    fun install(bus: DBusConnection? = SessionBus.connection, icon: (Int) -> BufferedImage): Boolean {
+    fun install(
+        bus: DBusConnection? = SessionBus.connection,
+        onRegistered: () -> Unit = {},
+        icon: (Int) -> BufferedImage,
+    ): Boolean {
         bus ?: return false
         val name = "org.kde.StatusNotifierItem-${ProcessHandle.current().pid()}-1"
         val active = AtomicBoolean(false)
@@ -59,16 +63,16 @@ internal object DBusTray {
                 if (active.get() && signal.member == "NameOwnerChanged" && signal.body.getOrNull(0) == WATCHER &&
                     (signal.body.getOrNull(2) as? String).orEmpty().isNotEmpty()
                 ) {
-                    register(bus, name)
+                    register(bus, name, onRegistered)
                 }
             }
             active.set(true)
             if (bus.nameHasOwner(WATCHER)) {
-                register(bus, name)
+                register(bus, name, onRegistered)
             } else {
                 Logger.info("Tray", "Waiting for a StatusNotifierWatcher on the session bus")
+                false
             }
-            true
         } catch (e: Exception) {
             active.set(false)
             runCatching { bus.call(DBusConnection.BUS, DBusConnection.BUS_PATH, DBusConnection.BUS, "ReleaseName", "s", listOf(name)) }
@@ -77,13 +81,14 @@ internal object DBusTray {
         }
     }
 
-    private fun register(bus: DBusConnection, name: String) {
-        runCatching {
-            bus.call(WATCHER, WATCHER_PATH, WATCHER, "RegisterStatusNotifierItem", "s", listOf(name))
-            Logger.info("Tray", "Registered $name with the StatusNotifierWatcher")
-        }.onFailure {
-            Logger.error("Tray", "RegisterStatusNotifierItem failed: ${it.message}")
-        }
+    private fun register(bus: DBusConnection, name: String, onRegistered: () -> Unit): Boolean = runCatching {
+        bus.call(WATCHER, WATCHER_PATH, WATCHER, "RegisterStatusNotifierItem", "s", listOf(name))
+        Logger.info("Tray", "Registered $name with the StatusNotifierWatcher")
+        onRegistered()
+        true
+    }.getOrElse {
+        Logger.error("Tray", "RegisterStatusNotifierItem failed: ${it.message}")
+        false
     }
 
     /** `a(iiay)`: ARGB32 in network byte order, a few sizes for the host to choose from. */
