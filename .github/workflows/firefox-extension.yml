@@ -23,13 +23,15 @@ jobs:
           node-version: '24'
 
       - name: Check Firefox JavaScript syntax
-        run: rg --files browser-extension/firefox-extension -g '*.js' -0 | xargs -0 -n1 node --check
+        shell: bash
+        run: find browser-extension/firefox-extension -type f -name '*.js' -print0 | xargs -0 -n1 node --check
 
       - name: Run Firefox connection regression tests
         run: node --test browser-extension/tests/firefox-connector.test.cjs
 
       - name: Verify regression tests reject the previous connector
         run: |
+          git fetch --no-tags --depth=1 origin 2e056a2d481b8c172f3d067f9118c83973558a41
           git show 2e056a2d481b8c172f3d067f9118c83973558a41:browser-extension/firefox-extension/app/connector.js > "$RUNNER_TEMP/firefox-connector-before.js"
           if FIREFOX_CONNECTOR_SOURCE="$RUNNER_TEMP/firefox-connector-before.js" \
             node --test browser-extension/tests/firefox-connector.test.cjs; then
