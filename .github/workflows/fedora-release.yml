@@ -1,0 +1,112 @@
+name: Fedora test release
+
+on:
+  push:
+    branches: [ release/fedora ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fedora-release
+  cancel-in-progress: false
+
+jobs:
+  fedora:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Write runner Maven toolchain
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/toolchains.xml <<XML
+          <toolchains>
+            <toolchain>
+              <type>jdk</type>
+              <provides><version>25</version></provides>
+              <configuration><jdkHome>${JAVA_HOME}</jdkHome></configuration>
+            </toolchain>
+          </toolchains>
+          XML
+
+      - name: Compile and run tray and activation regression tests
+        env:
+          XDM_TRAY_TEST_BUS: '1'
+        run: >-
+          dbus-run-session -- mvn -B -pl xdm-app -am
+          -DskipTests=false -Dtest=DBusTrayTest,SingleInstanceTest
+          -Dsurefire.failIfNoSpecifiedTests=false package
+
+      - name: Build Linux x86_64 packages
+        run: packaging/build-linux.sh -s --arch x64
+
+      - name: Verify RPM installation and removal on Fedora 44
+        run: |
+          docker run --rm --platform linux/amd64 \
+            -v "$PWD/build/linux-x64:/packages:ro" fedora:44 bash -euc '
+              cat /etc/fedora-release
+              dnf -y install /packages/*.rpm
+              rpm -q xdm-app
+              rpm -V xdm-app
+              test -x /opt/xdm-app/bin/xdm-app
+              test "$(readlink /usr/bin/xdm-app)" = /opt/xdm-app/bin/xdm-app
+              test -f /usr/share/applications/xdm-app.desktop
+              test -f /opt/xdm-app/lib/app/.package
+              /opt/xdm-app/lib/runtime/bin/java -version
+              dnf -y remove xdm-app
+              test ! -e /usr/bin/xdm-app
+              test ! -e /usr/share/applications/xdm-app.desktop
+            '
+
+      - name: Prepare release files and checksums
+        run: |
+          mkdir -p build/fedora-release
+          cp build/linux-x64/*.rpm build/fedora-release/
+          cd build/fedora-release
+          sha256sum *.rpm > SHA256SUMS
+
+      - name: Save Fedora RPM
+        uses: actions/upload-artifact@v7
+        with:
+          name: nissixdm-fedora-x86_64
+          path: build/fedora-release/*
+          if-no-files-found: error
+
+      - name: Publish Fedora prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(python3 -c 'import json; print(json.load(open("xdm-app/src/main/resources/app-version.json"))["currentVersion"])')"
+          tag="v$version-nissi-fedora.$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT"
+          cat > build/fedora-release-notes.md <<NOTES
+          Fedora x86_64 test build containing the tray-registration and window-restoration fixes.
+
+          Source commit: $GITHUB_SHA
+          Build: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+
+          Checks completed: Java compilation, tray and activation regression tests, RPM installation and removal in a Fedora 44 container, and bundled Java startup.
+          A Fedora graphical desktop, visible tray icon, and download queue behavior have not been verified.
+
+          Download the RPM and SHA256SUMS. In the download directory:
+          \`sha256sum -c SHA256SUMS\`
+          \`sudo dnf install ./xdm-app*.rpm\`
+
+          The RPM uses the upstream package name xdm-app. It conflicts with older xdman/xdman_gtk packages, and its installer stops running xdm-app processes. Finish active downloads before installing.
+          GNOME needs a compatible AppIndicator/StatusNotifier extension to display the tray icon.
+          NOTES
+          gh release create "$tag" build/fedora-release/*.rpm build/fedora-release/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "NissiXDM $version Fedora x86_64 test build" \
+            --notes-file build/fedora-release-notes.md --prerelease --latest=false
