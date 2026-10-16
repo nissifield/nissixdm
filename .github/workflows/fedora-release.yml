@@ -72,16 +72,16 @@ jobs:
 
       - name: Prepare release files and checksums
         run: |
-          mkdir -p build/fedora-release
-          cp build/linux-x64/*.rpm build/fedora-release/
-          cd build/fedora-release
+          mkdir -p fedora-release
+          cp build/linux-x64/*.rpm fedora-release/
+          cd fedora-release
           sha256sum *.rpm > SHA256SUMS
 
       - name: Save Fedora RPM
         uses: actions/upload-artifact@v7
         with:
           name: nissixdm-fedora-x86_64
-          path: build/fedora-release/*
+          path: fedora-release/*
           if-no-files-found: error
 
       - name: Publish Fedora prerelease
@@ -90,7 +90,7 @@ jobs:
         run: |
           version="$(python3 -c 'import json; print(json.load(open("xdm-app/src/main/resources/app-version.json"))["currentVersion"])')"
           tag="v$version-nissi-fedora.$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT"
-          cat > build/fedora-release-notes.md <<NOTES
+          cat > fedora-release-notes.md <<NOTES
           Fedora x86_64 test build containing the tray-registration and window-restoration fixes.
 
           Source commit: $GITHUB_SHA
@@ -106,7 +106,7 @@ jobs:
           The RPM uses the upstream package name xdm-app. It conflicts with older xdman/xdman_gtk packages, and its installer stops running xdm-app processes. Finish active downloads before installing.
           GNOME needs a compatible AppIndicator/StatusNotifier extension to display the tray icon.
           NOTES
-          gh release create "$tag" build/fedora-release/*.rpm build/fedora-release/SHA256SUMS \
+          gh release create "$tag" fedora-release/*.rpm fedora-release/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "NissiXDM $version Fedora x86_64 test build" \
-            --notes-file build/fedora-release-notes.md --prerelease --latest=false
+            --notes-file fedora-release-notes.md --prerelease --latest=false
