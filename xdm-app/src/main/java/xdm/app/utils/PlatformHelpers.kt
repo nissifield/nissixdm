@@ -35,8 +35,8 @@ import kotlin.system.exitProcess
 private var trayIconRef: TrayIcon? = null
 
 /**
- * Installs the tray icon. Returns whether there is one (only logged: a hidden start without a tray
- * is still reachable by launching XDM again).
+ * Installs the tray icon, or waits for Linux's tray service to appear. The result is only logged:
+ * a hidden start without a tray is still reachable by launching XDM again.
  */
 fun createTray(image: Image): Boolean {
     // Linux panels want a StatusNotifierItem; the AWT tray (XEmbed) is only the fallback, and the

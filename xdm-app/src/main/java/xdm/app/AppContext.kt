@@ -123,6 +123,12 @@ object AppContext {
                     exitProcess(0)
                 }
 
+                BrowserIntegration.Acquired.ActivationFailed -> {
+                    Logger.error("The running XDM instance did not accept the window activation request")
+                    app.showFatalError(I8N.text("ERR_ACTIVATION_FAILED"))
+                    exitProcess(1)
+                }
+
                 BrowserIntegration.Acquired.PortTaken -> {
                     Logger.error("Port ${BrowserIntegration.PORT} is in use by another program")
                     app.showFatalError(

@@ -9,6 +9,7 @@ import xdm.app.utils.linux.dbus.Reply
 import xdm.app.utils.linux.dbus.Variant
 import xdm.core.util.Logger
 import java.awt.image.BufferedImage
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
 import kotlin.system.exitProcess
 
@@ -34,57 +35,55 @@ internal object DBusTray {
     private const val ITEM_SEPARATOR = 2
     private const val ITEM_EXIT = 3
 
-    private var busName: String? = null
-
-    /** False when install gave up, so a watcher that turns up later doesn't add a second icon. */
-    @Volatile
-    private var active = false
-
     /**
-     * Puts the icon on the bus and registers it with the watcher. Returns false (and leaves nothing
-     * behind) when there is no session bus or no watcher, so the caller can try the AWT tray.
+     * Exports the icon and watches for the tray service, which may start after XDM at login.
+     * True means D-Bus owns the tray lifecycle, even while waiting for a watcher; the caller must
+     * not also install an AWT icon. False lets the caller fall back when setup itself fails.
      */
-    fun install(icon: (Int) -> BufferedImage): Boolean {
-        val bus = SessionBus.connection ?: return false
+    fun install(bus: DBusConnection? = SessionBus.connection, icon: (Int) -> BufferedImage): Boolean {
+        bus ?: return false
+        val name = "org.kde.StatusNotifierItem-${ProcessHandle.current().pid()}-1"
+        val active = AtomicBoolean(false)
         return try {
-            if (!bus.nameHasOwner(WATCHER)) {
-                Logger.info("Tray", "No StatusNotifierWatcher on the session bus")
-                return false
-            }
-            val name = "org.kde.StatusNotifierItem-${ProcessHandle.current().pid()}-1"
             if (!bus.requestName(name)) {
                 Logger.error("Tray", "Could not own $name")
                 return false
             }
-            busName = name
             bus.export(ITEM_PATH, Item(pixmaps(icon)))
             bus.export(MENU_PATH, Menu)
-            // A panel restart brings a new watcher, which knows nothing of us.
+            // Subscribe before checking ownership so a watcher starting during setup is not missed.
             bus.addSignalListener(
                 "type='signal',sender='${DBusConnection.BUS}',interface='${DBusConnection.BUS}'," +
                         "member='NameOwnerChanged',arg0='$WATCHER'"
             ) { signal ->
-                if (active && signal.member == "NameOwnerChanged" && signal.body.getOrNull(0) == WATCHER &&
+                if (active.get() && signal.member == "NameOwnerChanged" && signal.body.getOrNull(0) == WATCHER &&
                     (signal.body.getOrNull(2) as? String).orEmpty().isNotEmpty()
                 ) {
-                    register(bus)
+                    register(bus, name)
                 }
             }
-            active = register(bus)
-            active
+            active.set(true)
+            if (bus.nameHasOwner(WATCHER)) {
+                register(bus, name)
+            } else {
+                Logger.info("Tray", "Waiting for a StatusNotifierWatcher on the session bus")
+            }
+            true
         } catch (e: Exception) {
+            active.set(false)
+            runCatching { bus.call(DBusConnection.BUS, DBusConnection.BUS_PATH, DBusConnection.BUS, "ReleaseName", "s", listOf(name)) }
             Logger.error("Tray", "StatusNotifierItem failed: ${e.message}")
             false
         }
     }
 
-    private fun register(bus: DBusConnection): Boolean = runCatching {
-        bus.call(WATCHER, WATCHER_PATH, WATCHER, "RegisterStatusNotifierItem", "s", listOf(busName))
-        Logger.info("Tray", "Registered $busName with the StatusNotifierWatcher")
-        true
-    }.getOrElse {
-        Logger.error("Tray", "RegisterStatusNotifierItem failed: ${it.message}")
-        false
+    private fun register(bus: DBusConnection, name: String) {
+        runCatching {
+            bus.call(WATCHER, WATCHER_PATH, WATCHER, "RegisterStatusNotifierItem", "s", listOf(name))
+            Logger.info("Tray", "Registered $name with the StatusNotifierWatcher")
+        }.onFailure {
+            Logger.error("Tray", "RegisterStatusNotifierItem failed: ${it.message}")
+        }
     }
 
     /** `a(iiay)`: ARGB32 in network byte order, a few sizes for the host to choose from. */

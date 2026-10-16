@@ -32,6 +32,7 @@ import xdm.core.util.FormatHelper.formatSize
 import xdm.core.util.Logger
 import xdm.core.util.MovePhase
 import java.awt.Desktop
+import java.awt.Frame
 import java.awt.MenuItem
 import java.awt.PopupMenu
 import java.awt.Taskbar
@@ -142,7 +143,7 @@ class AppInstance : IAppInstance {
             // toolkit): the browser extension still works, and launching XDM again hands over to this
             // instance, which shows the window - the same state as closing the window.
             if (minimized) {
-                Logger.info(if (hasTray) "Starting minimized to the system tray" else "Starting hidden (no system tray)")
+                Logger.info(if (hasTray) "Starting minimized (tray installed or awaiting desktop)" else "Starting hidden (no system tray)")
                 // WorkingSetTrim.request("started in the tray")  // working-set trimming disabled
             } else {
                 showAppWindow()
@@ -202,6 +203,7 @@ class AppInstance : IAppInstance {
 
     override fun showAppWindow() {
         runOnUIThread {
+            appWindow.extendedState = appWindow.extendedState and Frame.ICONIFIED.inv()
             appWindow.isVisible = true
             appWindow.toFront()
         }
