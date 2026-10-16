@@ -659,3 +659,4 @@ SD_EDIT=Edit
 SD_REMOVE=Remove
 SD_PASTE_HEADERS=Paste from clipboard
 SD_HEADERS_HINT=Sent when loading the playlist and with every segment. Cookies go in a Cookie header.
+ERR_ACTIVATION_FAILED=XDM is running, but it did not accept the request to show the download window. Check the running instance and its logs, then try again.

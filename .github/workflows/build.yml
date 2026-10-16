@@ -39,6 +39,14 @@ jobs:
       - name: Build jar
         run: mvn -B -pl xdm-app -am package
 
+      - name: Test tray registration and single-instance activation
+        env:
+          XDM_TRAY_TEST_BUS: '1'
+        run: >-
+          dbus-run-session -- mvn -B -pl xdm-app -am
+          -DskipTests=false -Dtest=DBusTrayTest,SingleInstanceTest
+          -Dsurefire.failIfNoSpecifiedTests=false test
+
       - name: Upload jar
         uses: actions/upload-artifact@v7
         with:

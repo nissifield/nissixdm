@@ -109,6 +109,44 @@ class SingleInstanceTest {
         assertEquals(0, shown.get(), "nothing should have been asked to show a window")
     }
 
+    @Test
+    fun liveInstanceRejectingActivationIsReportedAsFailure() {
+        val port = freePort()
+        val listener = ServerSocket().apply { bind(InetSocketAddress("127.0.0.1", port)) }
+        strays.add(listener)
+        Thread {
+            while (!listener.isClosed) {
+                runCatching {
+                    listener.accept().use { socket ->
+                        val request = socket.getInputStream().bufferedReader(StandardCharsets.UTF_8)
+                        val line = request.readLine()
+                        var contentLength = 0
+                        while (true) {
+                            val header = request.readLine() ?: break
+                            if (header.isEmpty()) break
+                            if (header.startsWith("Content-Length:", ignoreCase = true)) {
+                                contentLength = header.substringAfter(':').trim().toInt()
+                            }
+                        }
+                        repeat(contentLength) { request.read() }
+                        val isShow = line.startsWith("POST /show ")
+                        val body = if (isShow) "" else """{"enabled":true,"fileExts":[],"instanceId":"fake"}"""
+                        val status = if (isShow) "503 Service Unavailable" else "200 OK"
+                        val response = "HTTP/1.1 $status\r\nContent-Type: application/json\r\n" +
+                                "Content-Length: ${body.toByteArray(StandardCharsets.UTF_8).size}\r\nConnection: close\r\n\r\n$body"
+                        socket.getOutputStream().apply {
+                            write(response.toByteArray(StandardCharsets.UTF_8))
+                            flush()
+                        }
+                    }
+                }
+            }
+        }.apply { isDaemon = true }.start()
+
+        assertEquals(BrowserIntegration.Acquired.ActivationFailed, BrowserIntegration.acquire(emptyArray(), port))
+        assertEquals(0, shown.get())
+    }
+
     /**
      * The instance that answered the probe goes away before the handover request. Without the
      * retry this launch would exit and leave the user with no XDM at all.

@@ -32,6 +32,7 @@ import xdm.core.util.FormatHelper.formatSize
 import xdm.core.util.Logger
 import xdm.core.util.MovePhase
 import java.awt.Desktop
+import java.awt.Frame
 import java.awt.MenuItem
 import java.awt.PopupMenu
 import java.awt.Taskbar
@@ -202,6 +203,7 @@ class AppInstance : IAppInstance {
 
     override fun showAppWindow() {
         runOnUIThread {
+            appWindow.extendedState = appWindow.extendedState and Frame.ICONIFIED.inv()
             appWindow.isVisible = true
             appWindow.toFront()
         }

@@ -85,6 +85,9 @@ object BrowserIntegration {
         /** Another XDM already owns it and has been asked to show itself. This process should exit. */
         object AnotherInstance : Acquired
 
+        /** XDM answered its probe but did not accept the request to show its window. */
+        object ActivationFailed : Acquired
+
         /** Something that is not XDM holds the port. XDM cannot run; tell the user and exit. */
         object PortTaken : Acquired
     }
@@ -120,7 +123,7 @@ object BrowserIntegration {
             serverSocket = it
             return Acquired.Primary
         }
-        return if (looksLikeXdm(port)) Acquired.AnotherInstance else Acquired.PortTaken
+        return if (looksLikeXdm(port)) Acquired.ActivationFailed else Acquired.PortTaken
     }
 
     /** Starts serving the socket taken by [acquire]. Call once the app's services are up. */
