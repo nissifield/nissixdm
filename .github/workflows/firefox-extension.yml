@@ -1,0 +1,69 @@
+name: Firefox extension
+
+on:
+  push:
+    branches: [ fix/firefox-connection ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  firefox:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Check Firefox JavaScript syntax
+        shell: bash
+        run: find browser-extension/firefox-extension -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Run Firefox connection regression tests
+        run: node --test browser-extension/tests/firefox-connector.test.cjs
+
+      - name: Verify regression tests reject the previous connector
+        run: |
+          git fetch --no-tags --depth=1 origin 2e056a2d481b8c172f3d067f9118c83973558a41
+          git show 2e056a2d481b8c172f3d067f9118c83973558a41:browser-extension/firefox-extension/app/connector.js > "$RUNNER_TEMP/firefox-connector-before.js"
+          set +e
+          FIREFOX_CONNECTOR_SOURCE="$RUNNER_TEMP/firefox-connector-before.js" \
+            timeout 30s node --test browser-extension/tests/firefox-connector.test.cjs
+          result=$?
+          set -e
+          if [[ "$result" -ne 1 ]]; then
+            echo "Expected regression failures (exit 1), got $result" >&2
+            exit 1
+          fi
+
+      - name: Lint and package Firefox extension
+        run: browser-extension/package-firefox.sh
+
+      - name: Prepare Firefox checksum
+        run: |
+          cd browser-extension/build
+          sha256sum xdm-firefox-1.0.1.zip > FIREFOX-SHA256SUMS
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nissixdm-firefox-1.0.1-unsigned
+          path: |
+            browser-extension/build/xdm-firefox-1.0.1.zip
+            browser-extension/build/FIREFOX-SHA256SUMS
+          if-no-files-found: error
+
+      - name: Attach companion Firefox test extension
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload v9.0.1-nissi-fedora.2.1 \
+            browser-extension/build/xdm-firefox-1.0.1.zip \
+            browser-extension/build/FIREFOX-SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY"

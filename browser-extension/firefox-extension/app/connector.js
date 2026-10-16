@@ -13,6 +13,12 @@ const MIN_POLL_INTERVAL_MS = 1000;
  */
 const MIN_CONNECT_INTERVAL_MS = 5000;
 
+/** Bound requests that accept a connection but never answer. Long polls stay open separately. */
+const SYNC_TIMEOUT_MS = 3000;
+
+/** XDM returns an empty poll after 20 seconds; allow extra time for delivery. */
+const POLL_TIMEOUT_MS = 30000;
+
 /** How often the idle backstop runs when nothing else is triggering a lookup. */
 const WATCHDOG_INTERVAL_MS = 30000;
 
@@ -30,6 +36,7 @@ class Connector {
         this.polling = false;
         /** When the last request to XDM went out, for the MIN_CONNECT_INTERVAL_MS floor. */
         this.lastAttemptAt = 0;
+        this.attempt = undefined;
         // The MV2 background page is persistent, so an in-memory id lasts as long as the extension.
         this.clientId = crypto.randomUUID();
     }
@@ -69,9 +76,12 @@ class Connector {
      *
      * Returns a promise that settles once the attempt is over, so a caller that wants to report
      * fresh state (the popup) can wait for it. A refused connection fails immediately, so waiting
-     * costs nothing when XDM is down.
+     * costs nothing when XDM is down. Callers arriving during a lookup share its result.
      */
     tryConnect(reason) {
+        if (this.attempt) {
+            return this.attempt;
+        }
         if (this.polling) {
             return Promise.resolve();
         }
@@ -82,21 +92,25 @@ class Connector {
         }
         this.lastAttemptAt = Date.now();
         this.logger.log("Looking for XDM (" + reason + ")");
-        return fetch(APP_BASE_URL + "/sync")
+        this.attempt = fetch(APP_BASE_URL + "/sync", { signal: AbortSignal.timeout(SYNC_TIMEOUT_MS) })
             .then(this.onResponse.bind(this))
-            .catch(err => this.disconnect());
+            .catch(err => this.disconnect())
+            .finally(() => { this.attempt = undefined; });
+        return this.attempt;
     }
 
 
-    onResponse(res) {
-        this.connected = true;
+    async onResponse(res) {
+        if (!res.ok) {
+            throw new Error("XDM returned HTTP " + res.status);
+        }
+        this.applyMessage(await res.json());
         this.startLongPoll();
-        return res.json().then(json => this.applyMessage(json)).catch(err => this.disconnect());
     }
 
     applyMessage(json) {
-        if (!json) {
-            return;
+        if (!json || typeof json.enabled !== "boolean" || !Array.isArray(json.fileExts)) {
+            throw new Error("Invalid XDM configuration");
         }
         // A version only counts from the start of one XDM run, so a restarted XDM hands out lower
         // numbers than the run before it. Comparing across runs would make every snapshot from the
@@ -113,6 +127,7 @@ class Connector {
             }
             this.version = json.version;
         }
+        this.connected = true;
         this.onMessage(json);
     }
 
@@ -137,9 +152,9 @@ class Connector {
         try {
             const res = await fetch(APP_BASE_URL + "/poll", {
                 method: "POST",
-                body: JSON.stringify({ clientId: this.clientId, version: this.version })
+                body: JSON.stringify({ clientId: this.clientId, version: this.version }),
+                signal: AbortSignal.timeout(POLL_TIMEOUT_MS)
             });
-            this.connected = true;
             if (res.status === 200) {
                 const json = await res.json();
                 if (json && json.bye === true) {
@@ -151,6 +166,9 @@ class Connector {
                 this.pollOnce();
                 return;
             }
+            if (res.status !== 204) {
+                throw new Error("XDM poll returned HTTP " + res.status);
+            }
             // 204: nothing to report, or this poll was superseded / turned away. Re-issue, but never
             // in a hot loop.
             const elapsed = Date.now() - startedAt;
@@ -160,23 +178,19 @@ class Connector {
                 this.pollOnce();
             }
         } catch (err) {
-            this.polling = false;
-            this.verifyConnection();
+            this.disconnect();
+            // A live /sync with a failing /poll must not become a tight reconnect loop.
+            setTimeout(() => this.tryConnect("poll failed"), MIN_CONNECT_INTERVAL_MS);
         }
-    }
-
-    verifyConnection() {
-        this.lastAttemptAt = Date.now();
-        fetch(APP_BASE_URL + "/sync")
-            .then(this.onResponse.bind(this))
-            .catch(err => this.disconnect());
     }
 
     postMessage(url, data) {
         // A command is a user action: it is never throttled, but it does count as having just
         // reached out, so no lookup follows right behind it.
         this.lastAttemptAt = Date.now();
-        return fetch(APP_BASE_URL + url, { method: "POST", body: JSON.stringify(data) })
+        return fetch(APP_BASE_URL + url, {
+            method: "POST", body: JSON.stringify(data), signal: AbortSignal.timeout(SYNC_TIMEOUT_MS)
+        })
             .then(this.onResponse.bind(this))
             .catch(err => this.disconnect());
     }
