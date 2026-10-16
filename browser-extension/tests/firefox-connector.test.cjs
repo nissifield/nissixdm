@@ -85,13 +85,16 @@ test("HTTP failures never enable interception or start polling", async () => {
 test("unrelated JSON and malformed replies are rejected before polling", async () => {
     for (const body of [null, {}, { enabled: true }, { enabled: true, fileExts: "zip" }]) {
         const calls = [];
-        const h = harness(async url => { calls.push(url); return response(body); });
+        const h = harness(async url => {
+            calls.push(url);
+            return url.endsWith("/poll") ? parked() : response(body);
+        });
         await h.connector.tryConnect("startup");
         assert.equal(h.connector.isConnected(), false);
         assert.equal(h.messages.length, 0);
         assert.equal(calls.length, 1);
     }
-    const h = harness(async () => ({
+    const h = harness(async url => url.endsWith("/poll") ? parked() : ({
         ok: true, status: 200, json: async () => { throw new SyntaxError("invalid JSON"); }
     }));
     await h.connector.tryConnect("startup");

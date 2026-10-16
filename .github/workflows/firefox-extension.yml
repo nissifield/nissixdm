@@ -33,9 +33,13 @@ jobs:
         run: |
           git fetch --no-tags --depth=1 origin 2e056a2d481b8c172f3d067f9118c83973558a41
           git show 2e056a2d481b8c172f3d067f9118c83973558a41:browser-extension/firefox-extension/app/connector.js > "$RUNNER_TEMP/firefox-connector-before.js"
-          if FIREFOX_CONNECTOR_SOURCE="$RUNNER_TEMP/firefox-connector-before.js" \
-            node --test browser-extension/tests/firefox-connector.test.cjs; then
-            echo "Regression tests unexpectedly passed against the previous connector" >&2
+          set +e
+          FIREFOX_CONNECTOR_SOURCE="$RUNNER_TEMP/firefox-connector-before.js" \
+            timeout 30s node --test browser-extension/tests/firefox-connector.test.cjs
+          result=$?
+          set -e
+          if [[ "$result" -ne 1 ]]; then
+            echo "Expected regression failures (exit 1), got $result" >&2
             exit 1
           fi
 
