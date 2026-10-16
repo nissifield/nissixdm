@@ -4,10 +4,12 @@ This fork is a learning project: use Codex to build and maintain XDM on Fedora. 
 
 ## Ponytail
 
-Read and apply the Ponytail skill in full mode:
-https://github.com/DietrichGebert/ponytail/blob/main/skills/ponytail/SKILL.md
+The repository-local skill is [.agents/skills/ponytail/SKILL.md](.agents/skills/ponytail/SKILL.md).
+Every agent, including the lead and each subagent, must read that file before starting work and apply it in full mode unless the user selects another mode. Read the local file rather than fetching the upstream skill at runtime.
 
-If the skill cannot be read, report that limitation. This file references the skill; it does not install it.
+The lead must include the local skill path and mode in every delegated task. Each agent must acknowledge the path and mode in its first work report. If an agent cannot read the file, report that limitation explicitly; do not claim the skill was applied.
+
+The upstream source revision and MIT license are stored beside the skill. No global installation is required for agents that read this repository.
 
 For all agents: inspect the affected code and callers first, reuse existing patterns and dependencies, make the smallest complete change, preserve validation and error handling, and check non-trivial logic with a focused test. Avoid unrelated cleanup or speculative abstractions. End reports with what was not checked and any material risk.
 
